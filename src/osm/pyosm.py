@@ -6,7 +6,7 @@ import xml.sax.saxutils
 import numpy
 import logging
 log = logging.getLogger("pyosm")
-
+import math
 
 #################### CLASSES
 class Attributes(object):
@@ -46,13 +46,13 @@ class Attributes(object):
 
 class Node(object):
     __slot__ = ['id', 'lat', 'lon','__attrs', '__tags']
-
+    
     def __init__(self, attrs, tags=None, load_tags=True, load_attrs=True):
         self.lon = 0.0
         self.lat = 0.0
         self.__attrs = None
         self.__tags = None
-            
+        
         self.id = int(attrs.pop('id'))
         if attrs.get('visible', '') != 'false':
             self.lon = float(attrs.pop('lon'))
@@ -60,16 +60,16 @@ class Node(object):
         
         if load_attrs:
             self.__attrs = Attributes(attrs)
-
+        
         if load_tags:
             self.__tags = tags
-
+    
     def __getattr__(self, name):
         if name == 'tags':
             return self.__tags
         elif self.__attrs:
             return self.__attrs.get(name)
-            
+    
     def __getitem__(self, name):
         if name == 'lat':
             return self.lat
@@ -79,7 +79,7 @@ class Node(object):
             return self.id
         elif name == 'tags':
             return self.__tags
-
+    
     def __cmp__(self, other):
         cmp_ref = cmp(self.tags.get('ref',''), other.tags.get('ref',''))
         if cmp_ref:
@@ -88,10 +88,10 @@ class Node(object):
         if cmp_name:
             return cmp_name
         return cmp(self.id, other.id)
-
+    
     def set_attr(self, name, value):
         self.__attrs.set_attr(name, value)
-
+    
     def attributes(self):
         d = {'id': repr(self.id),
              'lat': repr(self.lat),
@@ -99,29 +99,41 @@ class Node(object):
         if self.__attrs:
             d.update(self.__attrs.get_all())
         return d
-
+    
     def __repr__(self):
         return "Node(attrs=%r, tags=%r)" % (self.attributes(), self.__tags)
+    
+    def distance(self, other):
+        """
+        Returns the distance between this point the other in metres
+        """
+        lat1=float(self.lat) * math.pi / 180
+        lat2=float(other.lat) * math.pi / 180
+        lon1=float(self.lon) * math.pi / 180
+        lon2=float(other.lon) * math.pi / 180
+        dist = math.atan(math.sqrt(math.pow(math.cos(lat2)*math.sin(abs(lon1-lon2)),2) + math.pow(math.cos(lat1)*math.sin(lat2) - math.sin(lat1)*math.cos(lat2)*math.cos(lon1-lon2),2)) / (math.sin(lat1)*math.sin(lat2) + math.cos(lat1)*math.cos(lat2)*math.cos(lon1-lon2)))
+        dist *= 6372795 # convert from radians to meters
+        return dist
 
 
 class Way(object):
     __slot__ = ['id', '__attrs','__tags','__nodes', 'osm_parent']
-
+    
     def __init__(self, attrs, tags=None, nodes=None, osm_parent=None, load_tags=True, load_attrs=True, load_nodes=True):
         self.__nodes = None
         self.__attrs = None
         self.__tags = None
-
+        
         self.id = int(attrs.pop('id'))
         self.osm_parent = osm_parent
-
+        
         if load_nodes:
             self.__nodes = numpy.asarray(nodes, dtype='int64')
         if load_attrs:
             self.__attrs = Attributes(attrs)
         if load_tags:
             self.__tags = tags
-
+    
     def __getattr__(self, name):
         if name == 'nodes':
             return self.osm_parent.get_nodes(self.__nodes)
@@ -131,7 +143,7 @@ class Way(object):
             return self.__tags
         elif self.__attrs:
             return self.__attrs.get(name)
-            
+    
     def __getitem__(self, name):
         if name == 'id':
             return self.id
@@ -141,7 +153,7 @@ class Way(object):
             return list(self.__nodes)
         elif name == 'tags':
             return self.__tags
-
+    
     def __cmp__(self, other):
         cmp_ref = cmp(self.tags.get('ref',''), other.tags.get('ref',''))
         if cmp_ref:
@@ -150,18 +162,26 @@ class Way(object):
         if cmp_name:
             return cmp_name
         return cmp(self.id, other.id)
-
+    
     def set_attr(self, name, value):
         self.__attrs.set_attr(name, value)
-
+    
     def attributes(self):
         d = {'id': repr(self.id)}
         if self.__attrs:
             d.update(self.__attrs.get_all())
         return d
-
+    
     def __repr__(self):
         return "Way(attrs=%r, tags=%r, nodes=%r)" % (self.attributes(), self.__tags, list(self.__nodes))
+    
+    def __len__(self):
+        """
+        Returns the length of the way in metres
+        """
+        if len(self.nodes) < 2:
+            return 0
+        return sum(self.nodes[i].distance(self.nodes[i+1]) for i in range(len(self.nodes)-1))
 
 
 class Relation(object):
